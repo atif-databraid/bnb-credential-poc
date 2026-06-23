@@ -19,6 +19,17 @@ type MockCarrierPortal = {
   authMechanism: AuthMechanism;
 };
 
+interface LaunchPanelState {
+  userId: string;
+  carrierId: string;
+  phase: 'credentials' | 'mfa' | 'launched';
+  enteredUsername?: string;
+  enteredPassword?: string;
+  enteredOtp?: string;
+}
+
+let launchPanel: LaunchPanelState | null = null;
+
 const adapterModeOptions: AdapterMode[] = ['API_FEDERATED', 'PORTAL_GUIDED', 'EMAIL_FORM', 'MANUAL'];
 const authMechanismOptions: AuthMechanism[] = ['credentials', 'oauth', 'sso_redirect', 'email_code', 'phone_code'];
 const mfaMethodOptions: MfaMode[] = ['totp', 'sms', 'push', 'email'];
@@ -47,8 +58,8 @@ const requirementCopy: Record<RequirementId, { title: string; short: string; pro
   },
   R5: {
     title: 'Login automation',
-    short: 'Launch portals with trust-tier credential handling and MFA relay.',
-    proof: 'Users view launches carrier access through Tier 1, Tier 2, or Tier 3 behavior.',
+    short: 'Launch portals with credential mode handling and MFA relay.',
+    proof: 'Users view launches carrier access with inline sign-in, session reuse, or saved credentials.',
   },
   R6: {
     title: 'Carrier inconsistency',
@@ -63,7 +74,7 @@ const requirementCopy: Record<RequirementId, { title: string; short: string; pro
   N1: {
     title: 'Security choice',
     short: 'Do not force stored credentials.',
-    proof: 'Each selected carrier can use Tier 1, Tier 2, or Tier 3 credential policy.',
+    proof: 'Each carrier can be set to Always ask, Remember session, or Saved login.',
   },
   N2: {
     title: 'Broker in control',
@@ -207,15 +218,21 @@ function labelRole(role: AccessRole): string {
 }
 
 function labelTrust(tier: TrustTier): string {
-  if (tier === 'TIER_1_ENTER_EVERY_TIME') return 'Tier 1';
-  if (tier === 'TIER_2_CACHED_SESSION') return 'Tier 2';
-  return 'Tier 3';
+  if (tier === 'TIER_1_ENTER_EVERY_TIME') return 'Always ask';
+  if (tier === 'TIER_2_CACHED_SESSION') return 'Remember session';
+  return 'Saved login';
 }
 
 function trustName(tier: TrustTier): string {
-  if (tier === 'TIER_1_ENTER_EVERY_TIME') return 'Tier 1 - Enter every time';
-  if (tier === 'TIER_2_CACHED_SESSION') return 'Tier 2 - Cached session';
-  return 'Tier 3 - Stored registry';
+  if (tier === 'TIER_1_ENTER_EVERY_TIME') return 'Always ask — credentials entered fresh each time';
+  if (tier === 'TIER_2_CACHED_SESSION') return 'Remember session — kept until timeout';
+  return 'Saved login — stored and auto-applied';
+}
+
+function trustExplanation(tier: TrustTier): string {
+  if (tier === 'TIER_1_ENTER_EVERY_TIME') return 'Nothing is stored. You type your username and password each time you launch this carrier. Safest option for high-sensitivity portals.';
+  if (tier === 'TIER_2_CACHED_SESSION') return 'After you sign in once, your session is kept in memory until the carrier times out. You won\'t need to re-enter credentials for a few hours.';
+  return 'Your credentials are saved securely and applied automatically on each launch. You still complete MFA if the carrier requires it.';
 }
 
 function selectedTrustAttr(current: TrustTier, option: TrustTier): string {
@@ -299,25 +316,24 @@ function sessionKeyFor(userId: string, carrierId: string): string {
   return `${userId}::${carrierId}`;
 }
 
-function openMockCarrierPortal(
+function buildPortalUrl(
   userId: string,
   carrierId: string,
   credentials: { username: string; password: string; otp?: string } | null,
-): void {
+): string | null {
   const user = appState.users.find((entry) => entry.id === userId);
   const carrier = appState.carriers.find((entry) => entry.id === carrierId);
-  if (!user || !carrier) {
-    alert('Cannot open mock portal because user or carrier could not be found.');
-    return;
-  }
+  if (!user || !carrier) return null;
 
   const config = resolvePortalConfig(carrier);
   const grant = appState.accessGrants.find((entry) => entry.userId === userId && entry.carrierId === carrierId && entry.status === 'active');
   const key = sessionKeyFor(userId, carrierId);
   const storedHint = appState.vault[key]?.credentialHint ?? '';
-  const hasCachedSession = Boolean(appState.sessions[key]);
+  const session = appState.sessions[key];
+  const hasCachedSession = Boolean(session);
   const storedUsername = storedHint.split(':')[0] ?? '';
-  const resolvedUsername = credentials?.username || storedUsername || '';
+  const sessionUsername = session?.token ? (() => { try { return atob(session.token).split(':')[0]; } catch { return ''; } })() : '';
+  const resolvedUsername = credentials?.username || storedUsername || sessionUsername || '';
 
   const params = new URLSearchParams();
   params.set('carrierId', carrier.id);
@@ -334,18 +350,124 @@ function openMockCarrierPortal(
   params.set('username', resolvedUsername);
   params.set('cachedSession', hasCachedSession ? 'true' : 'false');
   params.set('mfaSatisfied', credentials?.otp ? 'true' : 'false');
+  if (credentials?.otp) {
+    params.set('otp', credentials.otp);
+  }
 
   const portalUrl = new URL(config.path, window.location.href);
   portalUrl.search = params.toString();
+  return portalUrl.toString();
+}
 
-  const portalWindow = window.open(portalUrl.toString(), '_blank');
-  if (!portalWindow) {
-    if (window.confirm('Your browser blocked the popup. Open this portal in the current tab instead?')) {
-      window.location.href = portalUrl.toString();
-    }
-    return;
+function buildLaunchPanel(): string {
+  if (!launchPanel) return '';
+
+  const user = appState.users.find((entry) => entry.id === launchPanel!.userId);
+  const carrier = appState.carriers.find((entry) => entry.id === launchPanel!.carrierId);
+  if (!user || !carrier) return '';
+
+  const grant = appState.accessGrants.find(
+    (entry) => entry.userId === user.id && entry.carrierId === carrier.id && entry.status === 'active',
+  );
+  if (!grant) return '';
+
+  const key = sessionKeyFor(user.id, carrier.id);
+  const storedHint = appState.vault[key]?.credentialHint ?? '';
+  const hasCachedSession = Boolean(appState.sessions[key]);
+  const tierLabel = labelTrust(grant.trustTier);
+  const tierExplain = trustExplanation(grant.trustTier);
+
+  if (launchPanel.phase === 'launched') {
+    return '';
   }
-  portalWindow.focus();
+
+  if (launchPanel.phase === 'mfa') {
+    return `
+      <div class="launch-panel">
+        <div class="launch-panel-header">
+          <div>
+            <p class="eyebrow">MFA required</p>
+            <h3>${carrier.name} — ${user.name}</h3>
+          </div>
+          <button type="button" class="ghost" data-action="close-launch">Cancel</button>
+        </div>
+        <div class="launch-panel-info">
+          <p>${carrier.name} requires <strong>${carrier.mfaMethod.toUpperCase()}</strong> verification.</p>
+          <p class="muted">The carrier sent a code to your registered device. Enter it below to continue.</p>
+        </div>
+        <form id="launch-mfa-form" class="launch-form">
+          <label>
+            MFA code (${carrier.mfaMethod})
+            <input name="otp" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="Enter code" required />
+          </label>
+          <div class="action-row">
+            <button type="submit">Verify and launch</button>
+            <button type="button" class="ghost" data-action="close-launch">Cancel</button>
+          </div>
+        </form>
+      </div>
+    `;
+  }
+
+  // phase === 'credentials'
+  const needsCredentials = grant.trustTier === 'TIER_1_ENTER_EVERY_TIME'
+    || (grant.trustTier === 'TIER_2_CACHED_SESSION' && !hasCachedSession)
+    || (grant.trustTier === 'TIER_3_STORED_REGISTRY' && !storedHint);
+  const prefillUsername = storedHint || user.email;
+
+  if (!needsCredentials) {
+    // Auto-launch: has cached session or stored credentials
+    return `
+      <div class="launch-panel">
+        <div class="launch-panel-header">
+          <div>
+            <p class="eyebrow">Launching carrier portal</p>
+            <h3>${carrier.name} — ${user.name}</h3>
+          </div>
+          <button type="button" class="ghost" data-action="close-launch">Cancel</button>
+        </div>
+        <div class="launch-tier-badge">
+          <strong>${tierLabel}</strong>
+          <span class="muted">${hasCachedSession ? 'Using your active session' : `Using saved credentials (${storedHint})`}</span>
+        </div>
+        <div class="action-row">
+          <button type="button" data-action="auto-launch">Launch ${carrier.name}</button>
+          <button type="button" class="ghost" data-action="close-launch">Cancel</button>
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="launch-panel">
+      <div class="launch-panel-header">
+        <div>
+          <p class="eyebrow">Sign in to carrier portal</p>
+          <h3>${carrier.name} — ${user.name}</h3>
+        </div>
+        <button type="button" class="ghost" data-action="close-launch">Cancel</button>
+      </div>
+      <div class="launch-tier-badge">
+        <strong>${tierLabel}</strong>
+        <p class="muted">${tierExplain}</p>
+      </div>
+      <form id="launch-cred-form" class="launch-form">
+        <label>
+          Username for ${carrier.name}
+          <input name="username" type="text" autocomplete="username" value="${prefillUsername}" placeholder="${user.email}" required />
+        </label>
+        <label>
+          Password
+          <input name="password" type="password" autocomplete="current-password" placeholder="Enter your ${carrier.name} password" required />
+        </label>
+        ${grant.trustTier === 'TIER_2_CACHED_SESSION' ? '<label class="checkbox-label"><input type="checkbox" name="remember" checked /> Remember this session</label>' : ''}
+        <div class="action-row">
+          <button type="submit">Sign in to ${carrier.name}</button>
+          <button type="button" class="ghost" data-action="close-launch">Cancel</button>
+        </div>
+      </form>
+    </div>
+  `;
 }
 
 function statusLabel(status: string): string {
@@ -426,10 +548,10 @@ function buildCarrierGrid(): string {
             </select>
           </td>
           <td>
-            <select name="trust_${carrier.id}" aria-label="${carrier.name} credential trust tier">
-              <option value="TIER_1_ENTER_EVERY_TIME"${selectedTrustAttr(carrier.defaultTrustTier, 'TIER_1_ENTER_EVERY_TIME')}>${trustName('TIER_1_ENTER_EVERY_TIME')}</option>
-              <option value="TIER_2_CACHED_SESSION"${selectedTrustAttr(carrier.defaultTrustTier, 'TIER_2_CACHED_SESSION')}>${trustName('TIER_2_CACHED_SESSION')}</option>
-              <option value="TIER_3_STORED_REGISTRY"${selectedTrustAttr(carrier.defaultTrustTier, 'TIER_3_STORED_REGISTRY')}>${trustName('TIER_3_STORED_REGISTRY')}</option>
+            <select name="trust_${carrier.id}" aria-label="${carrier.name} credential mode">
+              <option value="TIER_1_ENTER_EVERY_TIME"${selectedTrustAttr(carrier.defaultTrustTier, 'TIER_1_ENTER_EVERY_TIME')}>Always ask</option>
+              <option value="TIER_2_CACHED_SESSION"${selectedTrustAttr(carrier.defaultTrustTier, 'TIER_2_CACHED_SESSION')}>Remember session</option>
+              <option value="TIER_3_STORED_REGISTRY"${selectedTrustAttr(carrier.defaultTrustTier, 'TIER_3_STORED_REGISTRY')}>Saved login</option>
             </select>
           </td>
         </tr>
@@ -475,7 +597,7 @@ function buildProvidersView(): string {
           <td>${carrier.adapterMode}</td>
           <td>${carrier.authMechanism || 'credentials'}</td>
           <td>${carrier.requiresMfa ? `${carrier.mfaMethod} (requires MFA)` : 'No MFA'}</td>
-          <td>${trustName(carrier.defaultTrustTier)}</td>
+          <td>${labelTrust(carrier.defaultTrustTier)}</td>
           <td class="actions-col">
             <button type="button" data-action="edit-provider" data-carrier="${carrier.id}" class="ghost">Edit</button>
             <button type="button" data-action="delete-provider" data-carrier="${carrier.id}" class="ghost">Delete</button>
@@ -531,9 +653,11 @@ function buildProvidersView(): string {
               ${buildSelectOptions(authMechanismOptions, activeCarrier?.authMechanism ?? 'credentials')}
             </select>
           </label>
-          <label>Default trust tier
-            <select name="defaultTrustTier" aria-label="Default trust tier">
-              ${buildSelectOptions(trustTierOptions, activeCarrier?.defaultTrustTier ?? 'TIER_1_ENTER_EVERY_TIME')}
+          <label>Default credential mode
+            <select name="defaultTrustTier" aria-label="Default credential mode">
+              <option value="TIER_1_ENTER_EVERY_TIME"${selectedTrustAttr(activeCarrier?.defaultTrustTier ?? 'TIER_1_ENTER_EVERY_TIME', 'TIER_1_ENTER_EVERY_TIME')}>Always ask</option>
+              <option value="TIER_2_CACHED_SESSION"${selectedTrustAttr(activeCarrier?.defaultTrustTier ?? 'TIER_1_ENTER_EVERY_TIME', 'TIER_2_CACHED_SESSION')}>Remember session</option>
+              <option value="TIER_3_STORED_REGISTRY"${selectedTrustAttr(activeCarrier?.defaultTrustTier ?? 'TIER_1_ENTER_EVERY_TIME', 'TIER_3_STORED_REGISTRY')}>Saved login</option>
             </select>
           </label>
           <label>Timeout (hours)<input name="timeoutHours" type="number" min="1" max="240" step="1" value="${activeCarrier?.timeoutHours ?? 4}" /></label>
@@ -554,7 +678,7 @@ function buildProvidersView(): string {
               <th>Adapter</th>
               <th>Auth mechanism</th>
               <th>MFA</th>
-              <th>Default trust</th>
+              <th>Credential mode</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -748,7 +872,13 @@ function buildUsers(): string {
 
       const launchCarrierOptions = grants
         .filter((grant) => grant.status === 'active')
-        .map((grant) => `<option value="${grant.carrierId}">${carrierName(grant.carrierId)}</option>`)
+        .map((grant) => {
+          const key = sessionKeyFor(user.id, grant.carrierId);
+          const hasSession = Boolean(appState.sessions[key]);
+          const hasVault = Boolean(appState.vault[key]);
+          const stateHint = hasSession ? ' (session active)' : hasVault ? ' (saved)' : '';
+          return `<option value="${grant.carrierId}">${carrierName(grant.carrierId)}${stateHint}</option>`;
+        })
         .join('');
 
       const isCurrentUser = user.id === currentUserId;
@@ -758,7 +888,7 @@ function buildUsers(): string {
               <select data-launch-select="${user.id}" aria-label="Carrier to launch for ${user.name}">
                 ${launchCarrierOptions}
               </select>
-              <button type="button" data-action="launch" data-user="${user.id}">Launch selected carrier as ${user.name}</button>
+              <button type="button" data-action="launch" data-user="${user.id}">Launch carrier portal</button>
             </div>`
         : launchCarrierOptions
           ? '<div class="empty-line">Launch is available only for the currently signed-in user.</div>'
@@ -800,6 +930,7 @@ function buildUsers(): string {
         'users',
         'This view separates admin work from user work: admins can inspect and offboard access, while portal launch is only for the currently signed-in user.',
       )}
+      ${buildLaunchPanel()}
       <div class="user-list">${listRows}</div>
     </section>
   `;
@@ -1153,6 +1284,28 @@ function buildSummary(): string {
   </section>`;
 }
 
+function openPortalAndClose(userId: string, carrierId: string, username?: string, password?: string): void {
+  const key = sessionKeyFor(userId, carrierId);
+  const session = appState.sessions[key];
+  const vault = appState.vault[key];
+  const resolvedUser = username
+    || vault?.credentialHint
+    || (session?.token ? (() => { try { return atob(session.token).split(':')[0]; } catch { return ''; } })() : '')
+    || appState.users.find((u) => u.id === userId)?.email
+    || '';
+
+  const portalUrl = buildPortalUrl(
+    userId,
+    carrierId,
+    { username: resolvedUser, password: password || 'session', otp: launchPanel?.enteredOtp || 'relayed' },
+  );
+  if (portalUrl) {
+    window.open(portalUrl, '_blank');
+  }
+  launchPanel = null;
+  render();
+}
+
 function render(): void {
   ensureCurrentUser();
   const summary = buildSummary();
@@ -1204,50 +1357,99 @@ function render(): void {
   });
 
   root.querySelectorAll('[data-action="launch"]').forEach((button) => {
-    button.addEventListener('click', async () => {
+    button.addEventListener('click', () => {
       const userId = (button as HTMLButtonElement).dataset.user;
       const selectEl = root.querySelector<HTMLSelectElement>(`select[data-launch-select="${userId}"]`);
       const carrierId = selectEl?.value;
       if (!userId || !carrierId) return;
 
-      let launchState = appState;
-      let outcome = launchCarrierAccess(launchState, actorEmail(), userId, carrierId, {});
-      let collectedCredentials: { username: string; password: string; otp?: string } | null = null;
+      const outcome = launchCarrierAccess(appState, actorEmail(), userId, carrierId, {});
       if (outcome.status === 'NEEDS_CREDENTIALS') {
-        const user = appState.users.find((entry) => entry.id === userId);
-        const username = window.prompt(`Enter ${carrierName(carrierId)} username for ${user?.name ?? userId}`);
-        const password = window.prompt(`Enter ${carrierName(carrierId)} password`);
-        if (!username || !password) return;
-        collectedCredentials = { username, password };
-        outcome = launchCarrierAccess(launchState, actorEmail(), userId, carrierId, {
-          credentials: { username, password },
-          rememberSession: true,
-        });
-        launchState = outcome.state;
+        launchPanel = { userId, carrierId, phase: 'credentials' };
+      } else if (outcome.status === 'NEEDS_MFA') {
+        appState = outcome.state;
+        saveState(appState);
+        launchPanel = { userId, carrierId, phase: 'mfa' };
+      } else if (outcome.status === 'LAUNCHED') {
+        appState = outcome.state;
+        saveState(appState);
+        openPortalAndClose(userId, carrierId);
+      } else {
+        launchPanel = null;
       }
-      if (outcome.status === 'NEEDS_MFA') {
-        const otp = window.prompt(`Enter MFA code for ${carrierName(carrierId)}`);
-        if (!otp) return;
-        if (!collectedCredentials) {
-          const fallback = appState.users.find((entry) => entry.id === userId);
-          collectedCredentials = { username: fallback?.email ?? '', password: 'demo-cache', otp };
-        } else {
-          collectedCredentials = { ...collectedCredentials, otp };
-        }
-        outcome = launchCarrierAccess(launchState, actorEmail(), userId, carrierId, {
-          credentials: collectedCredentials ? { username: collectedCredentials.username, password: collectedCredentials.password } : undefined,
-          otp,
-        });
-        launchState = outcome.state;
-      }
-      appState = launchState;
-      saveState(appState);
-      if (outcome.status === 'LAUNCHED') {
-        openMockCarrierPortal(userId, carrierId, collectedCredentials);
-      }
-      alert(outcome.message);
       render();
     });
+  });
+
+  root.querySelector<HTMLButtonElement>('[data-action="auto-launch"]')?.addEventListener('click', () => {
+    if (!launchPanel) return;
+    const { userId, carrierId } = launchPanel;
+    const outcome = launchCarrierAccess(appState, actorEmail(), userId, carrierId, {});
+    if (outcome.status === 'NEEDS_MFA') {
+      appState = outcome.state;
+      saveState(appState);
+      launchPanel = { ...launchPanel, phase: 'mfa' };
+    } else if (outcome.status === 'LAUNCHED') {
+      appState = outcome.state;
+      saveState(appState);
+      openPortalAndClose(userId, carrierId, launchPanel.enteredUsername, launchPanel.enteredPassword);
+    }
+    render();
+  });
+
+  root.querySelectorAll('[data-action="close-launch"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      launchPanel = null;
+      render();
+    });
+  });
+
+  root.querySelector<HTMLFormElement>('#launch-cred-form')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (!launchPanel) return;
+    const form = event.currentTarget as HTMLFormElement;
+    const formData = new FormData(form);
+    const username = String(formData.get('username') ?? '').trim();
+    const password = String(formData.get('password') ?? '').trim();
+    const remember = Boolean(formData.get('remember'));
+    if (!username || !password) return;
+
+    const { userId, carrierId } = launchPanel;
+    const outcome = launchCarrierAccess(appState, actorEmail(), userId, carrierId, {
+      credentials: { username, password },
+      rememberSession: remember,
+    });
+    appState = outcome.state;
+    saveState(appState);
+
+    if (outcome.status === 'NEEDS_MFA') {
+      launchPanel = { userId, carrierId, phase: 'mfa', enteredUsername: username, enteredPassword: password };
+      render();
+    } else if (outcome.status === 'LAUNCHED') {
+      openPortalAndClose(userId, carrierId, username, password);
+    }
+  });
+
+  root.querySelector<HTMLFormElement>('#launch-mfa-form')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (!launchPanel) return;
+    const form = event.currentTarget as HTMLFormElement;
+    const formData = new FormData(form);
+    const otp = String(formData.get('otp') ?? '').trim();
+    if (!otp) return;
+
+    const { userId, carrierId, enteredUsername, enteredPassword } = launchPanel;
+    launchPanel = { ...launchPanel, enteredOtp: otp };
+    const outcome = launchCarrierAccess(appState, actorEmail(), userId, carrierId, {
+      credentials: enteredUsername ? { username: enteredUsername, password: enteredPassword || '' } : undefined,
+      otp,
+    });
+    appState = outcome.state;
+    saveState(appState);
+
+    if (outcome.status === 'LAUNCHED') {
+      openPortalAndClose(userId, carrierId, enteredUsername, enteredPassword);
+    }
   });
 
   root.querySelectorAll('[data-action="complete-task"]').forEach((button) => {

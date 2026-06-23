@@ -324,4 +324,230 @@
     }
     return 'No local mock session exists yet.';
   }
+
+  // --- RPA auto-execution mode ---
+  // If credentials were provided (from DataBraid launch), simulate automated login
+  const rpaUsername = context.username;
+  const rpaMfaSatisfied = context.mfaSatisfied;
+  const rpaOtpRaw = params.get('otp') || '';
+  const rpaOtp = (rpaOtpRaw && rpaOtpRaw !== 'relayed') ? rpaOtpRaw : '';
+  const shouldAutoExecute = rpaUsername && (rpaMfaSatisfied || !context.requiresMfa);
+
+  if (shouldAutoExecute) {
+    const rpaOverlay = document.createElement('div');
+    rpaOverlay.className = 'rpa-overlay';
+    rpaOverlay.innerHTML = `
+      <div class="rpa-banner">
+        <div class="rpa-banner-icon">&#9889;</div>
+        <span>DataBraid RPA — automating login</span>
+      </div>
+      <div class="rpa-step-log" id="rpa-log"></div>
+    `;
+    root.prepend(rpaOverlay);
+
+    const logEl = document.getElementById('rpa-log');
+
+    function typeInto(input, text, callback) {
+      if (!(input instanceof HTMLInputElement)) { callback(); return; }
+      input.value = '';
+      input.classList.add('rpa-highlight');
+      input.focus();
+      let i = 0;
+      const interval = setInterval(() => {
+        if (i < text.length) {
+          input.value += text[i];
+          i++;
+        } else {
+          clearInterval(interval);
+          callback();
+        }
+      }, 45);
+    }
+
+    function typePassword(input, length, callback) {
+      if (!(input instanceof HTMLInputElement)) { callback(); return; }
+      input.value = '';
+      input.classList.add('rpa-highlight');
+      input.focus();
+      let i = 0;
+      const interval = setInterval(() => {
+        if (i < length) {
+          input.value += '•';
+          i++;
+        } else {
+          clearInterval(interval);
+          callback();
+        }
+      }, 60);
+    }
+
+    function logStep(text) {
+      if (logEl) {
+        const line = document.createElement('div');
+        line.className = 'rpa-log-line';
+        line.innerHTML = `<span class="rpa-check">&#10003;</span> ${text}`;
+        logEl.appendChild(line);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+    }
+
+    function runSequence(steps, onDone) {
+      let i = 0;
+      function next() {
+        if (i >= steps.length) { onDone(); return; }
+        const step = steps[i];
+        i++;
+        setTimeout(() => { step.run(next); }, step.delay || 0);
+      }
+      next();
+    }
+
+    const steps = [];
+
+    if (context.authMechanism === 'oauth' || context.authMechanism === 'sso_redirect') {
+      steps.push(
+        { delay: 500, run: (next) => { logStep('Initiating SSO redirect...'); next(); } },
+        { delay: 700, run: (next) => {
+          logStep(`Injecting identity: ${safeText(rpaUsername)}`);
+          typeInto(identifierInput, rpaUsername, next);
+        }},
+        { delay: 600, run: (next) => { logStep('Identity provider token exchange...'); next(); } },
+        { delay: 600, run: (next) => { logStep('Session token received'); next(); } },
+      );
+    } else if (context.authMechanism === 'email_code' || context.authMechanism === 'phone_code') {
+      steps.push(
+        { delay: 500, run: (next) => {
+          logStep(`Filling identifier: ${safeText(rpaUsername)}`);
+          typeInto(identifierInput, rpaUsername, next);
+        }},
+        { delay: 500, run: (next) => {
+          logStep('Verification code relayed from broker');
+          typeInto(otpInput, rpaOtp || '••••••', next);
+        }},
+        { delay: 600, run: (next) => { logStep('Code verified'); next(); } },
+      );
+    } else {
+      steps.push(
+        { delay: 500, run: (next) => {
+          logStep(`Filling username: ${safeText(rpaUsername)}`);
+          typeInto(identifierInput, rpaUsername, next);
+        }},
+        { delay: 400, run: (next) => {
+          logStep('Filling password');
+          typePassword(passwordInput, 12, next);
+        }},
+      );
+      if (context.requiresMfa) {
+        const mfaLabel = rpaOtp
+          ? `MFA (${safeText(context.mfaMethod)}) — entering code from broker`
+          : `MFA (${safeText(context.mfaMethod)}) — session token reused`;
+        steps.push(
+          { delay: 500, run: (next) => {
+            logStep(mfaLabel);
+            const mfaBox = document.getElementById('mfa-box');
+            if (mfaBox) mfaBox.style.display = 'block';
+            typeInto(otpInput, rpaOtp || '••••••', next);
+          }},
+        );
+      }
+      steps.push(
+        { delay: 400, run: (next) => {
+          logStep('Submitting login form...');
+          const submitBtn = document.getElementById('portal-submit');
+          if (submitBtn) submitBtn.classList.add('rpa-highlight');
+          next();
+        }},
+      );
+    }
+
+    steps.push(
+      { delay: 800, run: (next) => {
+        logStep('Login successful — session active');
+        rpaOverlay.classList.add('rpa-done');
+        setTimeout(() => showAuthenticatedDashboard(context, rpaUsername, rpaOverlay), 800);
+        next();
+      }},
+    );
+
+    setTimeout(() => runSequence(steps, () => {}), 400);
+  }
+
+  function showAuthenticatedDashboard(ctx, username, overlay) {
+    const carrierSigil = body.dataset.brandSigil || ctx.carrierName.charAt(0);
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    root.innerHTML = `
+      <div class="mock-portal-shell">
+        <div class="rpa-success-bar">
+          <span class="rpa-check-lg">&#10003;</span>
+          <span>Signed in via DataBraid RPA</span>
+        </div>
+
+        <section class="carrier-card dashboard-header">
+          <div class="carrier-card-head">
+            <div class="carrier-logo" aria-hidden="true">${safeText(carrierSigil)}</div>
+            <div>
+              <h1 class="carrier-title">${safeText(ctx.carrierName)}</h1>
+              <p class="carrier-subtitle">Agent Portal — Authenticated Session</p>
+            </div>
+          </div>
+          <div class="dashboard-user-bar">
+            <span class="dashboard-user">${safeText(ctx.userName)}</span>
+            <span class="dashboard-email">${safeText(username)}</span>
+            <span class="dashboard-time">Session started ${timeStr}</span>
+          </div>
+        </section>
+
+        <section class="carrier-card">
+          <nav class="dashboard-nav">
+            <a class="dashboard-nav-item active" href="#">Home</a>
+            <a class="dashboard-nav-item" href="#">Policies</a>
+            <a class="dashboard-nav-item" href="#">Quotes</a>
+            <a class="dashboard-nav-item" href="#">Claims</a>
+            <a class="dashboard-nav-item" href="#">Reports</a>
+            <a class="dashboard-nav-item" href="#">Admin</a>
+          </nav>
+        </section>
+
+        <section class="carrier-card">
+          <h2>Welcome back, ${safeText(ctx.userName.split(' ')[0])}</h2>
+          <div class="dashboard-grid">
+            <div class="dashboard-tile">
+              <span class="dashboard-tile-number">24</span>
+              <span class="dashboard-tile-label">Active policies</span>
+            </div>
+            <div class="dashboard-tile">
+              <span class="dashboard-tile-number">7</span>
+              <span class="dashboard-tile-label">Pending quotes</span>
+            </div>
+            <div class="dashboard-tile">
+              <span class="dashboard-tile-number">3</span>
+              <span class="dashboard-tile-label">Open claims</span>
+            </div>
+            <div class="dashboard-tile">
+              <span class="dashboard-tile-number">12</span>
+              <span class="dashboard-tile-label">Renewals this month</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="carrier-card">
+          <h2>Recent activity</h2>
+          <div class="dashboard-activity">
+            <div class="activity-row"><span class="activity-dot"></span><span>Policy #WC-4821 renewed — Workers Comp — Premium $4,200</span><span class="muted">Today</span></div>
+            <div class="activity-row"><span class="activity-dot"></span><span>Quote #GL-1193 submitted — General Liability</span><span class="muted">Today</span></div>
+            <div class="activity-row"><span class="activity-dot"></span><span>Claim #AU-772 status updated — Auto Physical Damage</span><span class="muted">Yesterday</span></div>
+            <div class="activity-row"><span class="activity-dot"></span><span>New endorsement request — Property — #PR-3308</span><span class="muted">Yesterday</span></div>
+            <div class="activity-row"><span class="activity-dot"></span><span>Commission statement posted — June 2026</span><span class="muted">3 days ago</span></div>
+          </div>
+        </section>
+
+        <section class="carrier-card muted-card">
+          <p class="muted">This is a simulated ${safeText(ctx.carrierName)} portal dashboard. In production, DataBraid's RPA hands over a live browser session and the broker works directly in the carrier's real portal.</p>
+          ${ctx.liveUrl ? `<p><a class="carrier-link" href="${safeText(ctx.liveUrl)}" target="_blank" rel="noopener noreferrer">Open real ${safeText(ctx.carrierName)} portal</a></p>` : ''}
+        </section>
+      </div>
+    `;
+  }
 })();

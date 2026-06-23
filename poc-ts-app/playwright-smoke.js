@@ -83,8 +83,14 @@ async function run() {
   }
 
   const launchUserCard = page.locator('.user-row', { hasText: 'Alex Metka' });
-  await launchUserCard.getByRole('button', { name: 'Launch my access' }).click();
+  await launchUserCard.getByRole('button', { name: 'Launch carrier portal' }).click();
   await page.waitForTimeout(500);
+  const launchPanelVisible = await page.locator('.launch-panel').isVisible().catch(() => false);
+  if (!launchPanelVisible) {
+    throw new Error('Launch panel did not appear after clicking launch.');
+  }
+  await page.locator('[data-action="close-launch"]').first().click();
+  await page.waitForTimeout(200);
 
   await page.getByRole('button', { name: 'Continuity' }).click();
   await page.locator('#app section:has-text("Admin Continuity")').waitFor();
