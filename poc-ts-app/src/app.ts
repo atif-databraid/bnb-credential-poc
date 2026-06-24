@@ -337,6 +337,7 @@ function buildPortalUrl(
 
   const params = new URLSearchParams();
   params.set('carrierId', carrier.id);
+  params.set('themeId', carrier.id);
   params.set('carrierName', carrier.name);
   params.set('liveUrl', config.liveUrl);
   params.set('requiresMfa', String(carrier.requiresMfa));
