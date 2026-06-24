@@ -407,7 +407,7 @@
     }
     try {
       const host = new URL(rawUrl).hostname.replace(/^www\./, '');
-      return `https://logo.clearbit.com/${host}`;
+      return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=256`;
     } catch {
       return '';
     }
@@ -461,7 +461,7 @@
       searchHint: 'Search policies, claims guidance, and training resources',
       footerLinks: ['Cookie Notice', 'Privacy', 'Contact CNA'],
       footerNote: 'CNA landing simulation with the same top utility + agent-centered resource layout.',
-      logoSource: 'https://logo.clearbit.com/cna.com',
+      logoSource: 'https://www.google.com/s2/favicons?domain=cna.com&sz=256',
       chrome: {
         utilityBg: '#063f4e',
         utilityLink: '#d0ecff',
@@ -492,7 +492,7 @@
       searchTitle: 'Search Hartford help',
       searchHint: 'Search managed policies, SSO docs, and support pages',
       footerNote: 'Hartford facade with a clean utility strip and dense top navigation.',
-      logoSource: 'https://logo.clearbit.com/thehartford.com',
+      logoSource: 'https://www.google.com/s2/favicons?domain=thehartford.com&sz=256',
       footerLinks: ['Support Center', 'Accessibility', 'Privacy', 'Site status'],
       chrome: {
         utilityBg: '#082c57',
@@ -524,7 +524,7 @@
       searchTitle: 'Search Travelers',
       searchHint: 'Search policy workflows, claims status, and production tools',
       footerNote: 'Travelers page emulates a broad commercial-agent landing with dedicated tools and case resources.',
-      logoSource: 'https://logo.clearbit.com/travelers.com',
+      logoSource: 'https://www.google.com/s2/favicons?domain=travelers.com&sz=256',
       footerLinks: ['Search', 'Help Desk', 'Agent resources', 'Terms'],
       chrome: {
         utilityBg: '#07361f',
@@ -555,7 +555,7 @@
       searchTitle: 'Search Monoline',
       searchHint: 'Search policies, employer files, and loss-run tools',
       footerNote: 'Monoline mimic uses compact cards and compact utility links for producer clarity.',
-      logoSource: 'https://logo.clearbit.com/argogroup.com',
+      logoSource: 'https://www.google.com/s2/favicons?domain=argogroup.com&sz=256',
       footerLinks: ['Loss guidance', 'Employer support', 'Security', 'Contact'],
       chrome: {
         utilityBg: '#3f2762',
@@ -587,7 +587,7 @@
       searchTitle: 'Search AMN',
       searchHint: 'Search identity events, policy administration, and forms',
       footerNote: 'AMN view emphasizes identity and compliance with a balanced split hero.',
-      logoSource: 'https://logo.clearbit.com/argolimited.com',
+      logoSource: 'https://www.google.com/s2/favicons?domain=argolimited.com&sz=256',
       footerLinks: ['OAuth docs', 'Compliance', 'Contact', 'Status'],
       chrome: {
         utilityBg: '#03357a',
@@ -620,7 +620,7 @@
       searchTitle: 'Search Liberty Mutual',
       searchHint: 'Search renewals, claims status, and reporting files',
       footerNote: 'Liberty profile uses a broad top navigation and high-contrast hero card treatment.',
-      logoSource: 'https://logo.clearbit.com/libertymutual.com',
+      logoSource: 'https://www.google.com/s2/favicons?domain=libertymutual.com&sz=256',
       footerLinks: ['Broker support', 'Data privacy', 'Claims help', 'Terms'],
       chrome: {
         utilityBg: '#003b67',
@@ -653,7 +653,7 @@
       searchTitle: 'Search State Farm',
       searchHint: 'Search carriers notes, renewals, and policy tools',
       footerNote: 'State Farm façade keeps a restrained, legacy-style content stack and strong accent lines.',
-      logoSource: 'https://logo.clearbit.com/statefarm.com',
+      logoSource: 'https://www.google.com/s2/favicons?domain=statefarm.com&sz=256',
       footerLinks: ['Broker desk', 'Forms', 'Contact support', 'Policy help'],
       chrome: {
         utilityBg: '#0b2d5b',
@@ -687,7 +687,7 @@
       searchTitle: 'Search Hiscox',
       searchHint: 'Search documents, forms, and broker support topics',
       footerNote: 'Hiscox façade uses compact panels and muted cream accents on a legacy-inspired shell.',
-      logoSource: 'https://logo.clearbit.com/hiscox.com',
+      logoSource: 'https://www.google.com/s2/favicons?domain=hiscox.com&sz=256',
       footerLinks: ['Support', 'Document library', 'Contact', 'Sitemap'],
       chrome: {
         utilityBg: '#0b284a',
@@ -720,7 +720,7 @@
       searchTitle: 'Search Berkshire',
       searchHint: 'Search audits, policy files, and continuity artifacts',
       footerNote: 'Berkshire design emphasizes continuity, evidence, and accountable admin operations.',
-      logoSource: 'https://logo.clearbit.com/berkshirehathaway.com',
+      logoSource: 'https://www.google.com/s2/favicons?domain=berkshirehathaway.com&sz=256',
       footerLinks: ['Continuity help', 'Evidence exports', 'Admin support', 'Privacy'],
       chrome: {
         utilityBg: '#014646',
@@ -754,7 +754,7 @@
       searchTitle: 'Search Chubb',
       searchHint: 'Search inbox items, policies, and email-assisted workflows',
       footerNote: 'Chubb uses a darker content rail style paired with communication-focused resources.',
-      logoSource: 'https://logo.clearbit.com/chubb.com',
+      logoSource: 'https://www.google.com/s2/favicons?domain=chubb.com&sz=256',
       footerLinks: ['Underwriting desk', 'Mailbox', 'Claims', 'Policy help'],
       chrome: {
         utilityBg: '#2d1f42',
@@ -787,7 +787,7 @@
       searchTitle: 'Search Endeavor',
       searchHint: 'Search identity events, requests, and account tasks',
       footerNote: 'Endeavor shows a partner-operations style with identity-first controls.',
-      logoSource: 'https://logo.clearbit.com/argolimited.com',
+      logoSource: 'https://www.google.com/s2/favicons?domain=argolimited.com&sz=256',
       footerLinks: ['Identity center', 'Partner support', 'Task list', 'Contact'],
       chrome: {
         utilityBg: '#1b3a65',
@@ -820,7 +820,7 @@
       searchTitle: 'Search Axiom',
       searchHint: 'Search policies, support tasks, and carrier messaging',
       footerNote: 'Axiom profile uses a flatter legacy structure with warm accents and dense utility spacing.',
-      logoSource: 'https://logo.clearbit.com/axiomrisk.com',
+      logoSource: 'https://www.google.com/s2/favicons?domain=axiomrisk.com&sz=256',
       footerLinks: ['Carrier messaging', 'Support docs', 'Legacy help', 'Privacy'],
       chrome: {
         utilityBg: '#6e4000',
@@ -1009,6 +1009,15 @@
 
   root.innerHTML = `
     <div class="landing-shell">
+      <section class="rpa-landing-overlay" data-rpa-overlay>
+        <div class="rpa-landing-banner">
+          <span class="rpa-pulse-dot" aria-hidden="true"></span>
+          <strong>DataBraid RPA is preparing ${safeText(context.carrierName)}</strong>
+          <span data-rpa-status>Opening carrier session</span>
+        </div>
+        <div class="rpa-landing-steps" data-rpa-steps aria-live="polite"></div>
+      </section>
+
       <section class="landing-utility-bar">
         <div class="landing-utility-links">
           ${renderPills(profile.utilityLinks)}
@@ -1085,5 +1094,36 @@
         logoMark.classList.add('is-text');
       });
     }
+  }
+
+  const rpaOverlay = root.querySelector('[data-rpa-overlay]');
+  const rpaStatus = root.querySelector('[data-rpa-status]');
+  const rpaSteps = root.querySelector('[data-rpa-steps]');
+  if (rpaOverlay && rpaStatus && rpaSteps) {
+    const rpaSequence = [
+      `Resolved carrier profile: ${context.carrierName}`,
+      `Applied ${context.authMechanism.replace('_', ' ')} launch mode`,
+      context.requiresMfa
+        ? `MFA relay ready: ${context.mfaMethod.toUpperCase()}`
+        : 'MFA not required for this launch',
+      'Carrier landing session ready',
+    ];
+
+    rpaSequence.forEach((line, index) => {
+      window.setTimeout(() => {
+        const step = document.createElement('div');
+        step.className = 'rpa-landing-step';
+        step.innerHTML = `<span aria-hidden="true">✓</span>${safeText(line)}`;
+        rpaSteps.appendChild(step);
+        rpaStatus.textContent = line;
+
+        if (index === rpaSequence.length - 1) {
+          rpaOverlay.classList.add('is-complete');
+          window.setTimeout(() => {
+            rpaOverlay.classList.add('is-collapsed');
+          }, 900);
+        }
+      }, 350 + index * 520);
+    });
   }
 })();
