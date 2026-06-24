@@ -2,6 +2,8 @@
 
 **Source basis:** `source-material/requirements.md`, `source-material/problem-articulation.md`, `source-material/transcript-2026_06_12_10_59_EDT.txt`, and `source-material/background-research/findings.md`.
 
+**Implementation status:** A working reference implementation now exists in `poc-ts-app/` (browser-based TypeScript SPA). It demonstrates the lifecycle model, credential trust tiers, MFA relay, carrier-adapter modes, a per-carrier provider catalog, and a supervised browser-based RPA portal-automation demo. See [Reference Implementation](#reference-implementation-poc-ts-app) for how the built app maps to this architecture.
+
 ## Executive Summary
 
 Alex's core need is a broker-controlled system for managing carrier portal access across many carriers: onboarding, offboarding, admin-of-record continuity, access levels, credential/session handling, MFA, and carrier-specific process knowledge.
@@ -588,6 +590,59 @@ flowchart TB
 - **Retention policy:** define credential, session, evidence, and SOP retention separately.
 - **Carrier ToS posture:** prefer sanctioned integrations; use guided broker-in-loop workflows where sanctioned APIs do not exist.
 
+## Reference Implementation (`poc-ts-app/`)
+
+A runnable proof-of-concept lives in `poc-ts-app/`. It is a single-page TypeScript application with no backend: all state lives in the browser, the workflow engine runs client-side, and mock carrier portals are served as static pages. This keeps the demo safe and deterministic — it never calls real carrier endpoints and persists nothing outside the browser.
+
+### What it is (and is not)
+
+- **It is** a faithful demonstration of the lifecycle model, trust tiers, MFA relay, adapter modes, provider catalog, and a supervised RPA portal-automation flow.
+- **It is not** the production architecture rendered above. Several server-side services in the [Container Architecture](#container-architecture) are collapsed into client-side modules for the demo:
+
+| Architecture concept | Demo realization |
+|---|---|
+| Operational DB, Secrets Vault, Queue, Evidence/Object Store | Browser `localStorage` (single state blob, key `bb-credential-poc-state-v1`). |
+| Access Lifecycle Orchestrator, Credential Registry, Session Broker, MFA Relay | `src/engine.ts` pure functions (`provisionTeammate`, `deprovisionTeammate`, `launchCarrierAccess`, `completePendingTask`, `evaluateContinuity`, `searchKnowledge`). |
+| Carrier Adapter Runtime + per-carrier outcomes | `taskOutcomeForCarrier` deterministic outcome simulation by adapter mode; mock portal pages under `carrier-portals/`. |
+| Carrier API / federation, carrier mailbox | Simulated task outcomes; no live integrations. |
+| Secrets vault encryption | `btoa` encoding placeholder — illustrative only, not real envelope encryption. |
+| SOP Vector Index / Knowledge Assistant | Seeded `KnowledgeDoc` set with substring scoring in `searchKnowledge`. |
+
+### Implemented workspace views
+
+The app (`src/app.ts`) presents these views, each tagged with the `R#`/`N#` requirements it demonstrates:
+
+- **Alex Map** — requirements-to-screen translation for R1–R7 and N1–N6.
+- **Overview** — workspace launcher, pending queue, and a recent-requests sample.
+- **Provision** — add a teammate once, check carrier boxes, and set per-carrier role and trust tier; one request fans out into carrier-specific tasks.
+- **Users** — per-user access inventory, offboarding, and carrier launch (launch is restricted to the currently signed-in user; admins offboard others).
+- **Requests** — lifecycle request/task evidence trail with per-carrier task status.
+- **Providers** — full CRUD over the carrier catalog: portal URL, adapter mode, API support, auth mechanism, MFA method, default trust tier, and timeout.
+- **Pending** — operational queue of tasks needing broker confirmation (portal/email/manual adapter outcomes).
+- **Knowledge** — search over seeded carrier SOP notes.
+- **Continuity** — admin-of-record risk findings per carrier.
+
+### Browser-based RPA portal-automation demo
+
+The most recent addition is a supervised RPA demonstration of the guided-portal adapter mode, replacing an earlier `window.prompt` credential flow:
+
+- **Inline launch panel** in the workspace collects credentials (or auto-launches from a cached session / saved login), then relays MFA when the carrier requires it — no credentials are persisted in task records.
+- **Mock carrier portal** (`carrier-portals/mock-carrier-portal.js`) opens in a new window and renders a carrier-branded login whose form shape varies by `authMechanism` (`credentials`, `oauth`, `sso_redirect`, `email_code`, `phone_code`).
+- **RPA overlay** shows DataBraid automating the login: character-by-character typing into the username/password/OTP fields, a visible step log, then submission.
+- **Authenticated dashboard** is shown after a successful simulated login, standing in for the carrier session the broker would work in directly.
+- **Session reuse** — Tier 2 launches extract the username from the cached token and skip credential re-entry until timeout.
+
+This is demonstration-grade automation: it runs against the mock portals only, keeps the broker in the loop at credential and MFA checkpoints, and is consistent with the **RPA governance** posture in [Security and Compliance Controls](#security-and-compliance-controls).
+
+### Seed data
+
+The seed (`src/seed.ts`) ships **12 pilot carriers** spanning all adapter modes and auth mechanisms (CNA, The Hartford, Travelers, Monoline Work Comp, AMN/AFLAC, Liberty Mutual, State Farm, Hiscox, Berkshire Hathaway, Chubb, Endeavor, Axiom Risk), three seeded broker users (including Alex Metka as broker admin), seeded grants, admin-of-record assignments, and a small knowledge-note set.
+
+### Running and testing
+
+- `npm run build` compiles TypeScript; `npm start` serves the app at `http://127.0.0.1:4173`.
+- `playwright-smoke.js` is a headless smoke test covering provision → requests → offboard → launch panel → continuity → knowledge → localStorage persistence.
+
 ## Requirement Coverage
 
 | Requirement | POC Capability |
@@ -596,8 +651,8 @@ flowchart TB
 | R2 Deprovisioning | Departing-user workflow disables local access and tracks carrier revocation. |
 | R3 Admin continuity | Admin inventory, backup admin tracking, transfer workflows, continuity alerts. |
 | R4 Access levels | Normalized roles mapped to carrier-native role options. |
-| R5 Login automation / unified sign-on | Portal launcher, credential trust tiers, session cache, stored registry, MFA relay, and supervised RPA in pilot carriers. |
-| R6 Carrier inconsistency | Carrier catalog, playbooks, adapter modes, evidence rules. |
+| R5 Login automation / unified sign-on | Inline launch panel, credential trust tiers, session cache, saved login, MFA relay, and supervised browser-based RPA against mock portals (implemented in `poc-ts-app`). |
+| R6 Carrier inconsistency | Carrier catalog with Providers CRUD, playbooks, adapter modes, per-mode task outcomes, evidence rules. |
 | R7 Knowledge assistance | SOP ingestion, vector search, Q&A, task creation from answers. |
 | N1 Security/trust spectrum | Tier 1/2/3 credential handling. |
 | N2 Broker stays in control | Broker admin approvals and guided workflows. |
